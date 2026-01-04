@@ -12,6 +12,22 @@ import { select, password } from "@inquirer/prompts";
 import { scanProjectForEnvKeys } from "./scan.js";
 import { generateEnvDocsWithOpenAI } from "./ai.js";
 
+import { fileURLToPath } from "node:url";
+
+function getPackageVersion(): string {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+
+    const pkgPath = path.resolve(__dirname, "../package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 // cli-table3 interop safety (works in ESM + CJS environments)
 const Table: any = (TablePkg as any).default ?? (TablePkg as any);
 
@@ -34,7 +50,7 @@ type ModelName = (typeof MODELS)[number];
 
 function renderHeader() {
   const body = [
-    pc.bold("autoEnv"),
+    pc.bold(`autoEnv v${getPackageVersion()}`),
     pc.dim(""),
     pc.dim("Generate .env.example from your project’s env usage"),
     pc.dim("Created by @thev1ndu"),
@@ -103,7 +119,7 @@ async function getApiKey(): Promise<string> {
 
   const key = await password({
     message: "Enter OpenAI API key (not saved)",
-    // mask: "*",
+    mask: "*",
   });
 
   return String(key ?? "").trim();
