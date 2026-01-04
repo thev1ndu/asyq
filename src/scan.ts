@@ -29,7 +29,7 @@ const IGNORE_DIRS = new Set([
 
 // ENV VARS MUST BE EXPLICIT + UPPERCASE
 const ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
-const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/; // Allows any casing
 
 export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
   const root = opts.rootDir;
@@ -114,6 +114,7 @@ function extractFromEnvFile(
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
+    // Match any valid identifier in .env files
     const m = ln.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
     if (!m) continue;
     const k = m[1];
@@ -132,11 +133,15 @@ function extractFromCode(
 ) {
   const lines = text.split(/\r?\n/);
 
-  // ONLY explicit env APIs — nothing else
+  // ONLY explicit env APIs - any valid identifier
   const patterns: RegExp[] = [
+    // process.env.KEY or process?.env?.KEY
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    // process.env["KEY"] or process.env['KEY']
     /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
+    // import.meta.env.KEY
     /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    // Deno.env.get("KEY")
     /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g,
   ];
 
