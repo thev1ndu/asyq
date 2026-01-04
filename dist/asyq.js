@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// src/autoenv.ts
+// src/asyq.ts
 import { Command } from "commander";
 import fs2 from "fs";
 import path2 from "path";
@@ -244,7 +244,7 @@ async function generateEnvDocsWithOpenAI(opts) {
   })).filter((x) => x.key.length > 0);
 }
 
-// src/autoenv.ts
+// src/asyq.ts
 import { fileURLToPath } from "url";
 function getPackageVersion() {
   try {
@@ -268,7 +268,7 @@ var MODELS = [
 ];
 function renderHeader() {
   const body = [
-    pc.bold(`autoEnv v${getPackageVersion()}`),
+    pc.bold(`Asyq v${getPackageVersion()}`),
     pc.dim(""),
     pc.dim("Generate .env.example from your project\u2019s env usage"),
     pc.dim("Created by @thev1ndu")
@@ -331,7 +331,7 @@ async function getApiKey() {
   return String(key ?? "").trim();
 }
 var program = new Command();
-program.name("autoenv").description("Generate .env.example by scanning your project for env usage").version("3.0.3");
+program.name("Asyq").description("Generate .env.example by scanning your project for env usage").version(`v${getPackageVersion()}`);
 program.command("init").description("Scan project and generate .env.example").option("--root <dir>", "Project root to scan", ".").option("--out <file>", "Output file", ".env.example").option("--force", "Overwrite output if it exists").option(
   "--include-lowercase",
   "Include lowercase/mixed-case keys (not recommended)"
@@ -466,4 +466,4 @@ program.command("init").description("Scan project and generate .env.example").op
   console.log("");
 });
 program.parse(process.argv);
-//# sourceMappingURL=autoenv.js.map
+//# sourceMappingURL=asyq.js.map

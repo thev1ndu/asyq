@@ -1,5 +1,5 @@
 {
-  "name": "@itsthw/autoenv",
+  "name": "asyq",
   "version": "8.0.0",
   "type": "module",
   "keywords": [
@@ -25,7 +25,7 @@
   ],
   "description": "Generate .env.example from your project's env usage",
   "bin": {
-    "autoenv": "dist/autoenv.js"
+    "asyq": "dist/asyq.js"
   },
   "files": [
     "dist"

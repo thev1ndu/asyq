@@ -50,7 +50,7 @@ type ModelName = (typeof MODELS)[number];
 
 function renderHeader() {
   const body = [
-    pc.bold(`autoEnv v${getPackageVersion()}`),
+    pc.bold(`Asyq v${getPackageVersion()}`),
     pc.dim(""),
     pc.dim("Generate .env.example from your project’s env usage"),
     pc.dim("Created by @thev1ndu"),
@@ -128,9 +128,9 @@ async function getApiKey(): Promise<string> {
 const program = new Command();
 
 program
-  .name("autoenv")
+  .name("Asyq")
   .description("Generate .env.example by scanning your project for env usage")
-  .version("3.0.3");
+  .version(`v${getPackageVersion()}`);
 
 program
   .command("init")

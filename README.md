@@ -1,4 +1,4 @@
-**autoEnv** generates a `.env.example` file by scanning your project for real environment variable usage. It creates a single source of truth for your team without guessing secrets.
+**Asyq** generates a `.env.example` file by scanning your project for real environment variable usage. It creates a single source of truth for your team without guessing secrets.
 
 ## Installation & Usage
 
@@ -6,17 +6,17 @@ First, install it as a development dependency:
 
 ```bash
 # Using npm
-npm install -D @itsthw/autoenv
+npm install -D asyq
 
 # Using pnpm
-pnpm add -D @itsthw/autoenv
+pnpm add -D asyq
 
 ```
 
 then, run the initialization command:
 
 ```bash
-npx autoenv init
+npx asyq init
 
 ```
 
@@ -38,7 +38,7 @@ If you choose **AI Mode**, an OpenAI API key is required.
 
 ## Key Options
 
-| Command                    | Description                       |
-| -------------------------- | --------------------------------- |
-| `npx autoenv init`         | Standard interactive setup.       |
-| `npx autoenv init --force` | Overwrites existing output files. |
+| Command                 | Description                       |
+| ----------------------- | --------------------------------- |
+| `npx asyq init`         | Standard interactive setup.       |
+| `npx asyq init --force` | Overwrites existing output files. |
