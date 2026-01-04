@@ -27,6 +27,7 @@ const IGNORE_DIRS = new Set([
   ".cache",
 ]);
 
+// Enterprise-safe default: UPPERCASE env keys only
 const ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
 const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -37,6 +38,7 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
   const keyOk = (k: string) =>
     (opts.includeLowercase ? ENV_KEY_RE_LOOSE : ENV_KEY_RE_STRICT).test(k);
 
+  // Scan common source/config formats (avoid HTML/MD noise)
   const exts = new Set([
     ".ts",
     ".tsx",
@@ -94,6 +96,7 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
 
       filesScanned++;
 
+      // always store contexts as path relative to scan root
       const rel = path.relative(root, full).replace(/\\/g, "/");
 
       if (isEnvFile) {
@@ -112,6 +115,7 @@ function extractFromEnvFile(
   addCtx: (key: string, relFile: string, line: number, snippet: string) => void,
   keyOk: (k: string) => boolean
 ) {
+  // KEY=... or export KEY=...
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
@@ -133,13 +137,26 @@ function extractFromCodeAndConfigs(
 ) {
   const lines = text.split(/\r?\n/);
 
-  const patterns: RegExp[] = [
+  // Only enable ${KEY} interpolation scanning for config files (NOT TS/JS),
+  // otherwise you pick up normal constants like SIDEBAR_COOKIE_NAME, etc.
+  const ext = path.extname(relFile).toLowerCase();
+  const allowInterpolation =
+    ext === ".yml" || ext === ".yaml" || ext === ".toml" || ext === ".json";
+
+  // Strict env usage patterns (safe)
+  const strictPatterns: RegExp[] = [
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
     /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
     /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
     /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g,
-    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
   ];
+
+  // Config-only interpolation patterns
+  const interpolationPatterns: RegExp[] = allowInterpolation
+    ? [/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g]
+    : [];
+
+  const patterns = [...strictPatterns, ...interpolationPatterns];
 
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
@@ -147,6 +164,7 @@ function extractFromCodeAndConfigs(
     for (const re of patterns) {
       re.lastIndex = 0;
       let match: RegExpExecArray | null;
+
       while ((match = re.exec(ln))) {
         const k = match[1];
         if (!keyOk(k)) continue;

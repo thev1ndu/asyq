@@ -267,7 +267,7 @@ program
         status: "running",
         detail: `targets: ${targets.length}`,
       },
-      { title: "Scanning & writing", status: "pending" },
+      { title: "Scanning & Writing", status: "pending" },
     ];
 
     renderSteps(steps);
@@ -412,7 +412,7 @@ program
     }
 
     console.log("");
-    console.log(pc.bold("Complete"));
+    console.log(pc.bold("Completed"));
     console.log(table.toString());
     console.log("");
   });

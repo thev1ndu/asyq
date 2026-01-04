@@ -342,123 +342,216 @@ async function getApiKey() {
   });
   return key.trim();
 }
+function readWorkspaceGlobs(rootAbs) {
+  const globs = [];
+  const pnpmWs = path2.join(rootAbs, "pnpm-workspace.yaml");
+  if (fs2.existsSync(pnpmWs)) {
+    const txt = fs2.readFileSync(pnpmWs, "utf8");
+    for (const line of txt.split(/\r?\n/)) {
+      const m = line.match(/^\s*-\s*["']?([^"']+)["']?\s*$/);
+      if (m) globs.push(m[1].trim());
+    }
+  }
+  const pkgPath = path2.join(rootAbs, "package.json");
+  if (fs2.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs2.readFileSync(pkgPath, "utf8"));
+      const ws = pkg?.workspaces;
+      if (Array.isArray(ws)) globs.push(...ws);
+      if (ws && Array.isArray(ws.packages)) globs.push(...ws.packages);
+    } catch {
+    }
+  }
+  return [...new Set(globs)].filter(Boolean);
+}
+function expandSimpleGlob(rootAbs, pattern) {
+  const norm = pattern.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!norm.includes("*")) {
+    const abs = path2.join(rootAbs, norm);
+    return fs2.existsSync(abs) && fs2.statSync(abs).isDirectory() ? [norm] : [];
+  }
+  const m = norm.match(/^([^*]+)\/\*$/);
+  if (!m) return [];
+  const baseRel = m[1].replace(/\/+$/, "");
+  const baseAbs = path2.join(rootAbs, baseRel);
+  if (!fs2.existsSync(baseAbs) || !fs2.statSync(baseAbs).isDirectory()) return [];
+  const out = [];
+  for (const name of fs2.readdirSync(baseAbs)) {
+    const rel = `${baseRel}/${name}`;
+    const abs = path2.join(rootAbs, rel);
+    if (!fs2.statSync(abs).isDirectory()) continue;
+    if (fs2.existsSync(path2.join(abs, "package.json"))) out.push(rel);
+  }
+  return out;
+}
+function detectWorkspaces(rootAbs) {
+  const globs = readWorkspaceGlobs(rootAbs);
+  const found = /* @__PURE__ */ new Set();
+  for (const g of globs) {
+    for (const rel of expandSimpleGlob(rootAbs, g)) found.add(rel);
+  }
+  if (found.size === 0) {
+    for (const base of ["apps", "packages"]) {
+      const baseAbs = path2.join(rootAbs, base);
+      if (!fs2.existsSync(baseAbs) || !fs2.statSync(baseAbs).isDirectory())
+        continue;
+      for (const name of fs2.readdirSync(baseAbs)) {
+        const rel = `${base}/${name}`;
+        const abs = path2.join(rootAbs, rel);
+        if (!fs2.statSync(abs).isDirectory()) continue;
+        if (fs2.existsSync(path2.join(abs, "package.json"))) found.add(rel);
+      }
+    }
+  }
+  return [...found].sort((a, b) => a.localeCompare(b));
+}
 var program = new Command();
 program.name("asyq").description("Generate .env.example by scanning your project for env usage").version(`v${getPackageVersion()}`);
-program.command("init").description("Scan project and generate .env.example").option("--root <dir>", "Project root to scan", ".").option("--out <file>", "Output file", ".env.example").option("--force", "Overwrite output if it exists").option(
+program.command("init").description("Scan project and generate .env.example").option("--root <dir>", "Project root to scan", ".").option("--out <file>", "Output file name", ".env.example").option("--force", "Overwrite output if it exists").option(
   "--include-lowercase",
   "Include lowercase/mixed-case keys (not recommended)"
-).option("--debug", "Print scan diagnostics").action(async (opts) => {
+).option("--debug", "Print scan diagnostics").option("--monorepo", "Generate .env.example for root + each workspace").action(async (opts) => {
   renderHeader();
-  const root = path2.resolve(process.cwd(), opts.root);
-  const outFile = path2.resolve(process.cwd(), opts.out);
-  if (fs2.existsSync(outFile) && !opts.force) {
-    fail(`Output already exists: ${opts.out}`, "Use --force to overwrite.");
-  }
+  const rootAbs = path2.resolve(process.cwd(), opts.root);
+  const outName = String(opts.out || ".env.example");
   const mode = await pickMode();
   const model = mode === "ai" ? await pickModel() : null;
-  const steps = [
-    { title: "Preparing", status: "running", detail: `root: ${opts.root}` },
-    { title: "Scanning project files", status: "pending" },
-    {
-      title: "Writing .env.example",
-      status: "pending",
-      detail: mode === "ai" ? `AI (${model})` : "Default"
+  const targets = [
+    { label: "root", dirAbs: rootAbs }
+  ];
+  if (opts.monorepo) {
+    const workspaces = detectWorkspaces(rootAbs);
+    for (const rel of workspaces) {
+      targets.push({ label: rel, dirAbs: path2.join(rootAbs, rel) });
     }
+  }
+  let apiKey = "";
+  if (mode === "ai" && model) {
+    apiKey = await getApiKey();
+    if (!apiKey) {
+      fail(
+        "OpenAI API key is required for AI-assisted mode.",
+        "Set OPENAI_API_KEY or enter it when prompted."
+      );
+    }
+  }
+  const steps = [
+    {
+      title: "Preparing",
+      status: "running",
+      detail: `targets: ${targets.length}`
+    },
+    { title: "Scanning & writing", status: "pending" }
   ];
   renderSteps(steps);
   steps[0].status = "done";
   steps[1].status = "running";
   renderSteps(steps);
-  const scanSpinner = ora({
-    text: "Scanning for env keys",
-    spinner: "dots"
-  }).start();
-  const res = scanProjectForEnvKeys({
-    rootDir: root,
-    includeLowercase: !!opts.includeLowercase
-  });
-  scanSpinner.stop();
-  steps[1].status = "done";
-  steps[1].detail = `${res.filesScanned} files scanned`;
-  steps[2].status = "running";
-  renderSteps(steps);
-  if (opts.debug) {
-    console.log(pc.dim(""));
-    console.log(pc.dim("Diagnostics"));
-    console.log(pc.dim(`  root: ${opts.root}`));
-    console.log(pc.dim(`  files scanned: ${res.filesScanned}`));
-    console.log(pc.dim(`  keys found: ${res.keys.size}`));
-    console.log(pc.dim(""));
-  }
-  if (res.keys.size === 0) {
-    steps[2].status = "fail";
-    renderSteps(steps);
-    finishSteps();
-    fail(
-      "No environment variables found.",
-      "Ensure your code uses process.env.KEY or ${KEY}."
-    );
-  }
-  const keys = [...res.keys].sort((a, b) => a.localeCompare(b));
-  let content = keys.map((k) => `${k}=`).join("\n") + "\n";
-  if (mode === "ai" && model) {
-    const apiKey = await getApiKey();
-    const aiSpinner = ora({
-      text: "Generating AI guidance",
-      spinner: "dots"
-    }).start();
-    try {
-      const docs = await generateEnvDocsWithOpenAI({
-        apiKey,
-        model,
-        projectHint: "Write practical guidance for developers setting env vars.",
-        contexts: res.contexts,
-        keys
-      });
-      aiSpinner.stop();
-      const byKey = new Map(docs.map((d) => [d.key, d]));
-      content = keys.map((k) => {
-        const d = byKey.get(k);
-        if (!d) return `${k}=
-`;
-        const secretNote = d.is_secret ? "Secret value. Do not commit." : "Non-secret value (verify before committing).";
-        return [
-          `# ${d.key}`,
-          `# ${d.description}`,
-          `# Where to get it: ${d.where_to_get}`,
-          `# ${secretNote}`,
-          `${d.key}=${d.example_value || ""}`,
-          ""
-        ].join("\n");
-      }).join("\n").trimEnd() + "\n";
-    } catch (e) {
-      aiSpinner.stop();
-      steps[2].status = "fail";
+  const results = [];
+  for (const t of targets) {
+    const outFileAbs = path2.join(t.dirAbs, outName);
+    const outRelFromRoot = path2.relative(rootAbs, outFileAbs).replace(/\\/g, "/") || outName;
+    if (fs2.existsSync(outFileAbs) && !opts.force) {
+      steps[1].status = "fail";
       renderSteps(steps);
       finishSteps();
-      fail("AI generation failed.", e?.message ?? String(e));
+      fail(
+        `Output already exists: ${outRelFromRoot}`,
+        "Use --force to overwrite."
+      );
     }
+    const scanSpinner = ora({
+      text: `Scanning ${t.label}`,
+      spinner: "dots"
+    }).start();
+    const res = scanProjectForEnvKeys({
+      rootDir: t.dirAbs,
+      includeLowercase: !!opts.includeLowercase
+    });
+    scanSpinner.stop();
+    if (opts.debug) {
+      console.log(pc.dim(`
+${t.label} diagnostics`));
+      console.log(pc.dim(`  dir: ${t.dirAbs}`));
+      console.log(pc.dim(`  files scanned: ${res.filesScanned}`));
+      console.log(pc.dim(`  keys found: ${res.keys.size}
+`));
+    }
+    if (res.keys.size === 0) {
+      results.push({
+        target: t.label,
+        outRel: outRelFromRoot,
+        keys: 0,
+        files: res.filesScanned
+      });
+      continue;
+    }
+    const keys = [...res.keys].sort((a, b) => a.localeCompare(b));
+    let content = keys.map((k) => `${k}=`).join("\n") + "\n";
+    if (mode === "ai" && model) {
+      const aiSpinner = ora({
+        text: `AI docs ${t.label}`,
+        spinner: "dots"
+      }).start();
+      try {
+        const docs = await generateEnvDocsWithOpenAI({
+          apiKey,
+          model,
+          projectHint: "Write practical guidance for developers setting env vars.",
+          contexts: res.contexts,
+          keys
+        });
+        aiSpinner.stop();
+        const byKey = new Map(docs.map((d) => [d.key, d]));
+        content = keys.map((k) => {
+          const d = byKey.get(k);
+          if (!d) return `${k}=
+`;
+          const secretNote = d.is_secret ? "Secret value. Do not commit." : "Non-secret value (verify before committing).";
+          return [
+            `# ${d.key}`,
+            `# ${d.description}`,
+            `# Where to get it: ${d.where_to_get}`,
+            `# ${secretNote}`,
+            `${d.key}=${d.example_value || ""}`,
+            ""
+          ].join("\n");
+        }).join("\n").trimEnd() + "\n";
+      } catch (e) {
+        aiSpinner.stop();
+        steps[1].status = "fail";
+        renderSteps(steps);
+        finishSteps();
+        fail(`AI generation failed for ${t.label}.`, e?.message ?? String(e));
+      }
+    }
+    fs2.writeFileSync(outFileAbs, content, "utf8");
+    results.push({
+      target: t.label,
+      outRel: outRelFromRoot,
+      keys: keys.length,
+      files: res.filesScanned
+    });
   }
-  fs2.writeFileSync(outFile, content, "utf8");
-  steps[2].status = "done";
+  steps[1].status = "done";
   renderSteps(steps);
   finishSteps();
   const table = new Table({
     style: { head: [], border: [] },
-    colWidths: [18, 60],
+    colWidths: [28, 10, 60],
     wordWrap: true
   });
-  table.push(
-    [pc.dim("Output"), pc.cyan(opts.out)],
-    [pc.dim("Keys"), pc.cyan(String(keys.length))],
-    [pc.dim("Mode"), pc.cyan(mode === "ai" ? `AI (${model})` : "Default")]
-  );
+  table.push([pc.dim("Target"), pc.dim("Keys"), pc.dim("Output")]);
+  for (const r of results) {
+    table.push([
+      pc.cyan(r.target),
+      pc.cyan(String(r.keys)),
+      pc.cyan(r.outRel)
+    ]);
+  }
   console.log("");
   console.log(pc.bold("Complete"));
   console.log(table.toString());
-  console.log(pc.dim("Next steps"));
-  console.log(pc.dim(`  1) Fill values in ${opts.out}`));
-  console.log(pc.dim("  2) Copy to .env (do not commit secrets)"));
   console.log("");
 });
 program.parse(process.argv);
