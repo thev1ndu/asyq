@@ -3,8 +3,8 @@ import path from "node:path";
 
 export type ScanOptions = {
   rootDir: string;
-  includeLowercase?: boolean; // default false
-  maxContextPerKey?: number; // default 2
+  includeLowercase?: boolean;
+  maxContextPerKey?: number;
 };
 
 export type KeyContext = { file: string; line: number; snippet: string };
