@@ -28,7 +28,6 @@ var IGNORE_DIRS = /* @__PURE__ */ new Set([
 ]);
 var ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
 var ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-var DECLARATION_RE = /^\s*(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b/;
 function scanProjectForEnvKeys(opts) {
   const root = opts.rootDir;
   const maxCtx = opts.maxContextPerKey ?? 2;
@@ -82,7 +81,7 @@ function scanProjectForEnvKeys(opts) {
       if (isEnvFile) {
         extractFromEnvFile(content, rel, keys, addCtx, keyOk);
       } else {
-        extractFromCodeAndConfigs(content, rel, keys, addCtx, keyOk);
+        extractFromCode(content, rel, keys, addCtx, keyOk);
       }
     }
   }
@@ -99,22 +98,16 @@ function extractFromEnvFile(text, relFile, keys, addCtx, keyOk) {
     addCtx(k, relFile, i + 1, ln);
   }
 }
-function extractFromCodeAndConfigs(text, relFile, keys, addCtx, keyOk) {
+function extractFromCode(text, relFile, keys, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
-  const ext = path.extname(relFile).toLowerCase();
-  const allowInterpolation = ext === ".yml" || ext === ".yaml" || ext === ".toml" || ext === ".json";
-  const strictPatterns = [
+  const patterns = [
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
     /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
     /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
     /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g
   ];
-  const interpolationPatterns = allowInterpolation ? [/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g] : [];
-  const patterns = [...strictPatterns, ...interpolationPatterns];
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
-    const decl = ln.match(DECLARATION_RE);
-    if (decl && keyOk(decl[1])) continue;
     for (const re of patterns) {
       re.lastIndex = 0;
       let match;
