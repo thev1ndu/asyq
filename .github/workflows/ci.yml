@@ -1,4 +1,4 @@
-name: autoEnv Publisher CI
+name: autoEnv Publisher CI ~
 
 on:
   push:
@@ -19,12 +19,17 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - name: Ensure npm auth
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Configure npm auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish to npm
-        run: npm publish --access=public --no-git-checks
+      - name: Publish to npm with pnpm
+        run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
