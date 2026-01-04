@@ -1,9 +1,10 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/envguard.ts"],
-  format: ["cjs"],
-  dts: false,
+  entry: ["src/autoenv.ts"],
+  format: ["esm"],
+  splitting: false,
+  sourcemap: true,
   clean: true,
   target: "node18",
 });

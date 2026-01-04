@@ -1,18 +1,26 @@
 {
   "name": "@itsthw/autoenv",
-  "version": "2.2.4",
+  "version": "2.2.7",
   "type": "module",
   "bin": {
-    "envguard": "dist/envguard.cjs"
+    "autoenv": "dist/autoenv.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup"
+    "build": "tsup",
+    "publish:public": "pnpm build && pnpm publish --access public --no-git-checks",
+    "release:patch": "pnpm version patch && pnpm publish:public",
+    "release:minor": "pnpm version minor && pnpm publish:public",
+    "release:major": "pnpm version major && pnpm publish:public"
   },
   "dependencies": {
+    "boxen": "^8.0.1",
+    "cli-table3": "^0.6.5",
     "commander": "^12.0.0",
+    "log-update": "^7.0.2",
+    "ora": "^9.0.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
