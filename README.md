@@ -1,4 +1,4 @@
-**autoEnv** generates a `.env.example` file by scanning your project for real environment variable usage. It creates a single source of truth for your team without guessing secrets :)
+**autoEnv** generates a `.env.example` file by scanning your project for real environment variable usage. It creates a single source of truth for your team without guessing secrets.
 
 ## Installation & Usage
 
