@@ -18,10 +18,7 @@
     "push": "sh -lc 'set -euo pipefail; b=\"${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}\"; git push origin \"$b\"; git push origin --tags'",
     "release:patch": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:patch && pnpm push'",
     "release:minor": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:minor && pnpm push'",
-    "release:major": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:major && pnpm push'",
-    "ship:patch": "sh -lc 'set -euo pipefail; pnpm release:patch && pnpm publish'",
-    "ship:minor": "sh -lc 'set -euo pipefail; pnpm release:minor && pnpm publish'",
-    "ship:major": "sh -lc 'set -euo pipefail; pnpm release:major && pnpm publish'"
+    "release:major": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:major && pnpm push'"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.1.0",

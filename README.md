@@ -1,245 +1,46 @@
-# autoEnv v
+**autoEnv** generates a `.env.example` file by scanning your project for real environment variable usage. It creates a single source of truth for your team without guessing secrets.
 
-Generate a `.env.example` file by scanning your project for real environment variable usage.
+## Installation & Usage
 
-**autoEnv** analyzes your codebase to detect environment variables and can optionally use AI to generate human-readable documentation and safe example values.
-
-Created by **@thev1ndu**
-
----
-
-## Why autoEnv?
-
-Managing environment variables manually is error-prone and inconsistent across teams. autoEnv solves this by:
-
-- detecting **only variables that are actually used**
-- generating a **single source of truth** (`.env.example`)
-- optionally adding **clear guidance for developers**
-
----
-
-## Features
-
-- Accurate detection from real code usage
-- Optional AI-generated documentation
-- Monorepo-aware (pnpm / yarn / npm workspaces)
-- Never creates `.env`
-- Never guesses secrets
-- No runtime dependencies
-- Modern ESM-first CLI
-- Designed for teams and CI workflows
-
----
-
-## Installation
-
-### Use with npx (recommended)
-
-No installation required:
+First, install it as a development dependency:
 
 ```bash
-npx autoenv init
-```
-
----
-
-### Install as a dev dependency
-
-Using **pnpm**:
-
-```bash
-pnpm add -D @itsthw/autoenv
-```
-
-Using **npm**:
-
-```bash
+# Using npm
 npm install -D @itsthw/autoenv
+
+# Using pnpm
+pnpm add -D @itsthw/autoenv
+
 ```
 
-Then run:
+Then, run the initialization command:
 
 ```bash
 npx autoenv init
-```
-
----
-
-## Basic Usage
-
-```bash
-npx autoenv init
-```
-
-You will be guided through an interactive setup.
-
----
-
-## Generation Modes
-
-### Default mode
-
-Scans the project, generates `.env.example`, and outputs only variable names.
-
-Example:
-
-```env
-DATABASE_URL=
-JWT_SECRET=
-NODE_ENV=
-```
-
----
-
-### AI-assisted mode
-
-Adds structured comments and safe example values:
-
-```env
-# DATABASE_URL
-# PostgreSQL connection string used by the application
-# Where to get it: Local database or cloud provider
-# Secret value. Do not commit.
-DATABASE_URL=postgresql://user:password@localhost:5432/app
-
-# NODE_ENV
-# Runtime environment
-# Where to get it: Set manually
-NODE_ENV=development
-```
-
-AI mode:
-
-- never generates real secrets
-- never stores your API key
-- uses only detected variables
-
----
-
-## AI Model Selection
-
-When AI mode is selected, you can choose from supported models:
 
 ```
-gpt-4.1-mini (default)
-gpt-4.1
-gpt-5
-gpt-5-mini
-gpt-5-nano
-gpt-4.1-nano
-```
 
-The default model balances quality and cost for documentation generation.
+## How It Works
 
----
+1. **Scan:** Analyzes codebase for `process.env`, `import.meta.env`, and `${VAR}` usage.
+2. **Detect:** Identifies only variables that are actually used.
+3. **Generate:** Creates a clean `.env.example` file.
 
-## OpenAI API Key
+- **Default Mode:** Lists variable names only.
+- **AI Mode:** Adds descriptions and safe example values using LLMs.
 
-autoEnv reads the key from:
+## OpenAI API Key Security
 
-1. `OPENAI_API_KEY` environment variable (recommended)
-2. Interactive prompt (not saved)
+If you choose **AI Mode**, an OpenAI API key is required.
 
-Example:
+- **Input:** Reads from the `OPENAI_API_KEY` environment variable (recommended) or an interactive prompt.
+- **Safety:** The key is **never written to disk**, **never logged**, and **only used for the current run**.
 
-```bash
-export OPENAI_API_KEY=sk-xxxx
-```
+## Key Options
 
-The key is:
+| Command                    | Description                       |
+| -------------------------- | --------------------------------- |
+| `npx autoenv init`         | Standard interactive setup.       |
+| `npx autoenv init --force` | Overwrites existing output files. |
 
-- never written to disk
-- never logged
-- only used for the current run
-
----
-
-## Monorepo Support
-
-autoEnv automatically detects monorepos using:
-
-- `pnpm-workspace.yaml`
-- `workspaces` field in `package.json`
-
-When detected, you can:
-
-- scan the entire repository
-- select specific workspaces (e.g. `apps/web`, `packages/api`)
-
-### Manual control
-
-Force monorepo mode:
-
-```bash
-npx autoenv init --monorepo
-```
-
-Limit scanning scope:
-
-```bash
-npx autoenv init --scope apps/web,packages/api
-```
-
----
-
-## CLI Options
-
-```bash
-autoenv init [options]
-```
-
-| Option                | Description                           |
-| --------------------- | ------------------------------------- |
-| `--root <path>`       | Root directory to scan (default: `.`) |
-| `--out <file>`        | Output file (default: `.env.example`) |
-| `--force`             | Overwrite output file                 |
-| `--include-lowercase` | Include lowercase/mixed-case keys     |
-| `--monorepo`          | Force monorepo flow                   |
-| `--scope <paths>`     | Comma-separated scan paths            |
-| `--debug`             | Print scan diagnostics                |
-
----
-
-## What autoEnv Detects
-
-- `process.env.MY_VAR`
-- `process.env["MY_VAR"]`
-- `import.meta.env.MY_VAR`
-- `Deno.env.get("MY_VAR")`
-- `${MY_VAR}` in configs
-- existing `.env` / `.env.*` files
-
-By default, only **UPPERCASE** variables are included.
-
----
-
-## What autoEnv Will NOT Do
-
-- Create `.env`
-- Guess secret values
-- Modify your source code
-- Upload your project
-- Persist API keys
-
----
-
-## Recommended Workflow
-
-1. Run `autoenv`
-2. Review `.env.example`
-3. Fill values locally
-4. Copy to `.env`
-5. Commit `.env.example`
-6. Keep `.env` ignored
-
----
-
-## License
-
-MIT
-
----
-
-## Author
-
-Created and maintained by **@thev1ndu**
+**License:** MIT | **Author:** @thev1ndu
