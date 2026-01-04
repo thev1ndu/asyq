@@ -9,7 +9,8 @@ import ora from "ora";
 import boxen from "boxen";
 import logUpdate from "log-update";
 import TablePkg from "cli-table3";
-import { select, password } from "@inquirer/prompts";
+import { select, input } from "@inquirer/prompts";
+import { fileURLToPath } from "url";
 
 // src/scan.ts
 import fs from "fs";
@@ -48,11 +49,11 @@ function scanProjectForEnvKeys(opts) {
   let filesScanned = 0;
   walk(root);
   return { keys, filesScanned, contexts };
-  function addCtx(key, file, line, snippet) {
+  function addCtx(key, relFile, line, snippet) {
     if (!contexts[key]) contexts[key] = [];
     if (contexts[key].length >= maxCtx) return;
     contexts[key].push({
-      file,
+      file: relFile,
       line,
       snippet: snippet.trim().slice(0, 220)
     });
@@ -76,15 +77,16 @@ function scanProjectForEnvKeys(opts) {
       const content = safeRead(full);
       if (!content) continue;
       filesScanned++;
+      const rel = path.relative(root, full).replace(/\\/g, "/");
       if (isEnvFile) {
-        extractFromEnvFile(content, entry.name, keys, addCtx, keyOk);
+        extractFromEnvFile(content, rel, keys, addCtx, keyOk);
       } else {
-        extractFromCodeAndConfigs(content, entry.name, keys, addCtx, keyOk);
+        extractFromCodeAndConfigs(content, rel, keys, addCtx, keyOk);
       }
     }
   }
 }
-function extractFromEnvFile(text, fileName, keys, addCtx, keyOk) {
+function extractFromEnvFile(text, relFile, keys, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
@@ -93,10 +95,10 @@ function extractFromEnvFile(text, fileName, keys, addCtx, keyOk) {
     const k = m[1];
     if (!keyOk(k)) continue;
     keys.add(k);
-    addCtx(k, fileName, i + 1, ln);
+    addCtx(k, relFile, i + 1, ln);
   }
 }
-function extractFromCodeAndConfigs(text, fileName, keys, addCtx, keyOk) {
+function extractFromCodeAndConfigs(text, relFile, keys, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
   const patterns = [
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
@@ -114,7 +116,7 @@ function extractFromCodeAndConfigs(text, fileName, keys, addCtx, keyOk) {
         const k = match[1];
         if (!keyOk(k)) continue;
         keys.add(k);
-        addCtx(k, fileName, i + 1, ln);
+        addCtx(k, relFile, i + 1, ln);
       }
     }
   }
@@ -172,6 +174,7 @@ function buildInput(opts) {
   const system = [
     "You generate documentation for environment variables.",
     "Return ONLY JSON that matches the provided JSON Schema.",
+    "Do not include markdown or extra text.",
     "Never output real secrets. Use safe placeholders.",
     "Keep descriptions short and practical.",
     "where_to_get must be actionable (dashboard, secret manager, CI, local service, etc.)."
@@ -201,8 +204,21 @@ function extractTextFromResponses(data) {
   }
   return "";
 }
+function tryParseJsonLoose(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      return JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
+  }
+}
 async function generateEnvDocsWithOpenAI(opts) {
-  const input = buildInput(opts);
+  const input2 = buildInput(opts);
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -211,7 +227,7 @@ async function generateEnvDocsWithOpenAI(opts) {
     },
     body: JSON.stringify({
       model: opts.model,
-      input,
+      input: input2,
       text: {
         format: {
           type: "json_schema",
@@ -226,12 +242,10 @@ async function generateEnvDocsWithOpenAI(opts) {
   }
   const data = await res.json();
   const raw = extractTextFromResponses(data).trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const parsed = tryParseJsonLoose(raw);
+  if (!parsed) {
     throw new Error(
-      "AI output was not valid JSON (structured output expected)."
+      "AI output was not valid JSON. Try again, or use a different model."
     );
   }
   const items = Array.isArray(parsed?.items) ? parsed.items : [];
@@ -245,7 +259,15 @@ async function generateEnvDocsWithOpenAI(opts) {
 }
 
 // src/asyq.ts
-import { fileURLToPath } from "url";
+var Table = TablePkg.default ?? TablePkg;
+var MODELS = [
+  "gpt-5",
+  "gpt-5-mini",
+  "gpt-5-nano",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano"
+];
 function getPackageVersion() {
   try {
     const __filename = fileURLToPath(import.meta.url);
@@ -257,19 +279,9 @@ function getPackageVersion() {
     return "unknown";
   }
 }
-var Table = TablePkg.default ?? TablePkg;
-var MODELS = [
-  "gpt-5",
-  "gpt-5-mini",
-  "gpt-5-nano",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4.1-nano"
-];
 function renderHeader() {
   const body = [
     pc.bold(`Asyq v${getPackageVersion()}`),
-    pc.dim(""),
     pc.dim("Generate .env.example from your project\u2019s env usage"),
     pc.dim("Created by @thev1ndu")
   ].join("\n");
@@ -324,14 +336,14 @@ async function pickModel() {
 async function getApiKey() {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
-  const key = await password({
+  const key = await input({
     message: "Enter OpenAI API key (not saved)",
-    mask: "*"
+    validate: (v) => v.trim().length > 0 || "API key cannot be empty"
   });
-  return String(key ?? "").trim();
+  return key.trim();
 }
 var program = new Command();
-program.name("Asyq").description("Generate .env.example by scanning your project for env usage").version(`v${getPackageVersion()}`);
+program.name("asyq").description("Generate .env.example by scanning your project for env usage").version(`v${getPackageVersion()}`);
 program.command("init").description("Scan project and generate .env.example").option("--root <dir>", "Project root to scan", ".").option("--out <file>", "Output file", ".env.example").option("--force", "Overwrite output if it exists").option(
   "--include-lowercase",
   "Include lowercase/mixed-case keys (not recommended)"
@@ -391,15 +403,6 @@ program.command("init").description("Scan project and generate .env.example").op
   let content = keys.map((k) => `${k}=`).join("\n") + "\n";
   if (mode === "ai" && model) {
     const apiKey = await getApiKey();
-    if (!apiKey) {
-      steps[2].status = "fail";
-      renderSteps(steps);
-      finishSteps();
-      fail(
-        "OpenAI API key is required for AI-assisted mode.",
-        "Set OPENAI_API_KEY or enter it when prompted."
-      );
-    }
     const aiSpinner = ora({
       text: "Generating AI guidance",
       spinner: "dots"
@@ -416,15 +419,8 @@ program.command("init").description("Scan project and generate .env.example").op
       const byKey = new Map(docs.map((d) => [d.key, d]));
       content = keys.map((k) => {
         const d = byKey.get(k);
-        if (!d) {
-          return [
-            `# ${k}`,
-            `# Description: not provided`,
-            `# Where to get it: not provided`,
-            `${k}=`,
-            ""
-          ].join("\n");
-        }
+        if (!d) return `${k}=
+`;
         const secretNote = d.is_secret ? "Secret value. Do not commit." : "Non-secret value (verify before committing).";
         return [
           `# ${d.key}`,

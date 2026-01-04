@@ -7,26 +7,11 @@ import ora from "ora";
 import boxen from "boxen";
 import logUpdate from "log-update";
 import TablePkg from "cli-table3";
-import { select, password } from "@inquirer/prompts";
+import { select, input } from "@inquirer/prompts";
+import { fileURLToPath } from "node:url";
 
 import { scanProjectForEnvKeys } from "./scan.js";
 import { generateEnvDocsWithOpenAI } from "./ai.js";
-
-import { fileURLToPath } from "node:url";
-
-function getPackageVersion(): string {
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-
-    const pkgPath = path.resolve(__dirname, "../package.json");
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
 
 // cli-table3 interop safety (works in ESM + CJS environments)
 const Table: any = (TablePkg as any).default ?? (TablePkg as any);
@@ -48,10 +33,21 @@ const MODELS = [
 
 type ModelName = (typeof MODELS)[number];
 
+function getPackageVersion(): string {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const pkgPath = path.resolve(__dirname, "../package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 function renderHeader() {
   const body = [
     pc.bold(`Asyq v${getPackageVersion()}`),
-    pc.dim(""),
     pc.dim("Generate .env.example from your project’s env usage"),
     pc.dim("Created by @thev1ndu"),
   ].join("\n");
@@ -117,18 +113,18 @@ async function getApiKey(): Promise<string> {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
 
-  const key = await password({
+  const key = await input({
     message: "Enter OpenAI API key (not saved)",
-    mask: "*",
+    validate: (v) => v.trim().length > 0 || "API key cannot be empty",
   });
 
-  return String(key ?? "").trim();
+  return key.trim();
 }
 
 const program = new Command();
 
 program
-  .name("Asyq")
+  .name("asyq")
   .description("Generate .env.example by scanning your project for env usage")
   .version(`v${getPackageVersion()}`);
 
@@ -215,15 +211,6 @@ program
 
     if (mode === "ai" && model) {
       const apiKey = await getApiKey();
-      if (!apiKey) {
-        steps[2].status = "fail";
-        renderSteps(steps);
-        finishSteps();
-        fail(
-          "OpenAI API key is required for AI-assisted mode.",
-          "Set OPENAI_API_KEY or enter it when prompted."
-        );
-      }
 
       const aiSpinner = ora({
         text: "Generating AI guidance",
@@ -248,15 +235,7 @@ program
           keys
             .map((k) => {
               const d = byKey.get(k);
-              if (!d) {
-                return [
-                  `# ${k}`,
-                  `# Description: not provided`,
-                  `# Where to get it: not provided`,
-                  `${k}=`,
-                  "",
-                ].join("\n");
-              }
+              if (!d) return `${k}=\n`;
 
               const secretNote = d.is_secret
                 ? "Secret value. Do not commit."

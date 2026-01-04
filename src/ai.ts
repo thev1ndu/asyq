@@ -58,6 +58,7 @@ function buildInput(opts: AIGenerateOptions) {
   const system = [
     "You generate documentation for environment variables.",
     "Return ONLY JSON that matches the provided JSON Schema.",
+    "Do not include markdown or extra text.",
     "Never output real secrets. Use safe placeholders.",
     "Keep descriptions short and practical.",
     "where_to_get must be actionable (dashboard, secret manager, CI, local service, etc.).",
@@ -81,7 +82,6 @@ function extractTextFromResponses(data: any): string {
   if (typeof data?.output_text === "string" && data.output_text.trim())
     return data.output_text;
 
-  // Try to find text content in output array
   const out = data?.output;
   if (Array.isArray(out)) {
     for (const item of out) {
@@ -93,6 +93,22 @@ function extractTextFromResponses(data: any): string {
     }
   }
   return "";
+}
+
+function tryParseJsonLoose(raw: string): any | null {
+  // First try direct parse
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Try to extract the first {...} block
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      return JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
+  }
 }
 
 export async function generateEnvDocsWithOpenAI(
@@ -126,12 +142,10 @@ export async function generateEnvDocsWithOpenAI(
   const data: any = await res.json();
   const raw = extractTextFromResponses(data).trim();
 
-  let parsed: any;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const parsed = tryParseJsonLoose(raw);
+  if (!parsed) {
     throw new Error(
-      "AI output was not valid JSON (structured output expected)."
+      "AI output was not valid JSON. Try again, or use a different model."
     );
   }
 

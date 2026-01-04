@@ -27,7 +27,6 @@ const IGNORE_DIRS = new Set([
   ".cache",
 ]);
 
-// Enterprise-safe default: UPPERCASE env keys only
 const ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
 const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -38,7 +37,6 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
   const keyOk = (k: string) =>
     (opts.includeLowercase ? ENV_KEY_RE_LOOSE : ENV_KEY_RE_STRICT).test(k);
 
-  // Scan common source/config formats (avoid HTML/MD noise)
   const exts = new Set([
     ".ts",
     ".tsx",
@@ -60,11 +58,11 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
 
   return { keys, filesScanned, contexts };
 
-  function addCtx(key: string, file: string, line: number, snippet: string) {
+  function addCtx(key: string, relFile: string, line: number, snippet: string) {
     if (!contexts[key]) contexts[key] = [];
     if (contexts[key].length >= maxCtx) return;
     contexts[key].push({
-      file,
+      file: relFile,
       line,
       snippet: snippet.trim().slice(0, 220),
     });
@@ -96,10 +94,12 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
 
       filesScanned++;
 
+      const rel = path.relative(root, full).replace(/\\/g, "/");
+
       if (isEnvFile) {
-        extractFromEnvFile(content, entry.name, keys, addCtx, keyOk);
+        extractFromEnvFile(content, rel, keys, addCtx, keyOk);
       } else {
-        extractFromCodeAndConfigs(content, entry.name, keys, addCtx, keyOk);
+        extractFromCodeAndConfigs(content, rel, keys, addCtx, keyOk);
       }
     }
   }
@@ -107,12 +107,11 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
 
 function extractFromEnvFile(
   text: string,
-  fileName: string,
+  relFile: string,
   keys: Set<string>,
-  addCtx: (key: string, file: string, line: number, snippet: string) => void,
+  addCtx: (key: string, relFile: string, line: number, snippet: string) => void,
   keyOk: (k: string) => boolean
 ) {
-  // KEY=... or export KEY=...
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
@@ -121,20 +120,19 @@ function extractFromEnvFile(
     const k = m[1];
     if (!keyOk(k)) continue;
     keys.add(k);
-    addCtx(k, fileName, i + 1, ln);
+    addCtx(k, relFile, i + 1, ln);
   }
 }
 
 function extractFromCodeAndConfigs(
   text: string,
-  fileName: string,
+  relFile: string,
   keys: Set<string>,
-  addCtx: (key: string, file: string, line: number, snippet: string) => void,
+  addCtx: (key: string, relFile: string, line: number, snippet: string) => void,
   keyOk: (k: string) => boolean
 ) {
   const lines = text.split(/\r?\n/);
 
-  // Only structured env patterns here (NO generic KEY= parsing)
   const patterns: RegExp[] = [
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
     /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
@@ -153,7 +151,7 @@ function extractFromCodeAndConfigs(
         const k = match[1];
         if (!keyOk(k)) continue;
         keys.add(k);
-        addCtx(k, fileName, i + 1, ln);
+        addCtx(k, relFile, i + 1, ln);
       }
     }
   }
