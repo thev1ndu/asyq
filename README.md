@@ -13,7 +13,7 @@ pnpm add -D @itsthw/autoenv
 
 ```
 
-Then, run the initialization command:
+then, run the initialization command:
 
 ```bash
 npx autoenv init
