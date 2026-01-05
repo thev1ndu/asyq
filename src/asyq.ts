@@ -191,7 +191,7 @@ program
   .option("--debug", "Print scan diagnostics")
   .option("--monorepo", "Generate .env.example for root + each workspace")
   .action(async (opts) => {
-    p.intro(pc.cyan(`Asyq v${getPackageVersion()}`));
+    p.intro(pc.cyan(`\nAsyq v${getPackageVersion()} Created by @thev1ndu`));
 
     const rootAbs = path.resolve(process.cwd(), opts.root);
     const outName = String(opts.out || ".env.example");

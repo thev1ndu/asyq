@@ -448,13 +448,13 @@ program.command("init").description("Scan project and generate .env.example").op
       );
     }
     const s = p.spinner();
-    s.start(`Scanning ${t.label}`);
+    s.start(`Scanning ${t.label} for environment variables`);
     const res = scanProjectForEnvKeys({
       rootDir: t.dirAbs,
       includeLowercase: !!opts.includeLowercase
     });
     s.stop(
-      `Scanned ${t.label} (${res.filesScanned} files, ${res.keys.size} keys)`
+      `Scan complete: ${t.label} (${res.filesScanned} files, ${res.keys.size} keys)`
     );
     if (opts.debug) {
       p.note(
@@ -479,7 +479,7 @@ program.command("init").description("Scan project and generate .env.example").op
     let content = keys.map((k) => `${k}=`).join("\n") + "\n";
     if (mode === "ai" && model) {
       const aiSpinner = p.spinner();
-      aiSpinner.start(`Generating AI docs for ${t.label}`);
+      aiSpinner.start(`Writing .env.example documentation for ${t.label}`);
       try {
         const docs = await generateEnvDocsWithOpenAI({
           apiKey,
@@ -488,7 +488,9 @@ program.command("init").description("Scan project and generate .env.example").op
           contexts: res.contexts,
           keys
         });
-        aiSpinner.stop(`AI docs generated for ${t.label}`);
+        aiSpinner.stop(
+          `Documented ${keys.length} env variables for ${t.label}`
+        );
         const byKey = new Map(docs.map((d) => [d.key, d]));
         content = keys.map((k) => {
           const d = byKey.get(k);
@@ -505,7 +507,7 @@ program.command("init").description("Scan project and generate .env.example").op
           ].join("\n");
         }).join("\n").trimEnd() + "\n";
       } catch (e) {
-        aiSpinner.stop(`AI generation failed for ${t.label}`);
+        aiSpinner.stop(`Failed to write documentation for ${t.label}`);
         fail(e?.message ?? String(e));
       }
     }
