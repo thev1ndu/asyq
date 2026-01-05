@@ -32,27 +32,25 @@
   ],
   "scripts": {
     "build": "tsup",
-    "publish": "pnpm build && pnpm publish --access=public --no-git-checks",
+    "prepublishOnly": "pnpm build",
+    "pub": "pnpm publish --access=public --no-git-checks",
     "bump:patch": "pnpm version patch",
     "bump:minor": "pnpm version minor",
     "bump:major": "pnpm version major",
-    "commit": "sh -lc 'set -euo pipefail; : \"${MSG:?MSG is required}\"; git add .; git commit -m \"$MSG\"'",
-    "push": "sh -lc 'set -euo pipefail; b=\"${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}\"; git push origin \"$b\"; git push origin --tags'",
-    "release:patch": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:patch && pnpm push'",
-    "release:minor": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:minor && pnpm push'",
-    "release:major": "sh -lc 'set -euo pipefail; pnpm commit && pnpm bump:major && pnpm push'"
+    "commit": "node scripts/commit.js",
+    "push": "node scripts/push.js",
+    "release:patch": "pnpm commit && pnpm bump:patch && pnpm push && pnpm pub",
+    "release:minor": "pnpm commit && pnpm bump:minor && pnpm push && pnpm pub",
+    "release:major": "pnpm commit && pnpm bump:major && pnpm push && pnpm pub"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.1.0",
-    "boxen": "^8.0.1",
-    "cli-table3": "^0.6.5",
+    "@clack/prompts": "^0.11.0",
     "commander": "^12.0.0",
-    "log-update": "^7.0.2",
-    "ora": "^9.0.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "dotenv": "^16.6.1",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0"
   }

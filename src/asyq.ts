@@ -2,25 +2,12 @@
 import { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
-import pc from "picocolors";
-import ora from "ora";
-import boxen from "boxen";
-import logUpdate from "log-update";
-import TablePkg from "cli-table3";
-import { select, input } from "@inquirer/prompts";
 import { fileURLToPath } from "node:url";
+import * as p from "@clack/prompts";
+import pc from "picocolors";
 
 import { scanProjectForEnvKeys } from "./scan.js";
 import { generateEnvDocsWithOpenAI } from "./ai.js";
-
-// cli-table3 interop safety (works in ESM + CJS environments)
-const Table: any = (TablePkg as any).default ?? (TablePkg as any);
-
-type Step = {
-  title: string;
-  status: "pending" | "running" | "done" | "fail";
-  detail?: string;
-};
 
 const MODELS = [
   "gpt-5",
@@ -45,78 +32,57 @@ function getPackageVersion(): string {
   }
 }
 
-function renderHeader() {
-  const body = [
-    pc.bold(`Asyq v${getPackageVersion()}`),
-    pc.dim("Generate .env.example from your project’s env usage"),
-    pc.dim("Created by @thev1ndu"),
-  ].join("\n");
-
-  console.log(
-    boxen(body, {
-      padding: 1,
-      borderStyle: "round",
-      borderColor: "cyan",
-    })
-  );
-  console.log("");
-}
-
-function icon(status: Step["status"]) {
-  if (status === "done") return pc.green("✓");
-  if (status === "fail") return pc.red("✗");
-  if (status === "running") return pc.cyan("•");
-  return pc.dim("•");
-}
-
-function renderSteps(steps: Step[]) {
-  logUpdate(
-    steps
-      .map((s) => {
-        const left = `${icon(s.status)} ${s.title}`;
-        const right = s.detail ? pc.dim(s.detail) : "";
-        return right ? `${left} ${right}` : left;
-      })
-      .join("\n")
-  );
-}
-
-function finishSteps() {
-  logUpdate.done();
-}
-
-function fail(message: string, hint?: string): never {
-  console.error(pc.red(message));
-  if (hint) console.error(pc.dim(hint));
+function fail(message: string): never {
+  p.outro(pc.red(message));
   process.exit(1);
 }
 
 async function pickMode(): Promise<"default" | "ai"> {
-  return await select({
+  const mode = await p.select({
     message: "How would you like to generate .env.example?",
-    choices: [
-      { name: "Default", value: "default" },
-      { name: "AI-assisted", value: "ai" },
+    options: [
+      { label: "Default (fast)", value: "default" },
+      { label: "AI-assisted (adds descriptions)", value: "ai" },
     ],
   });
+
+  if (p.isCancel(mode)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
+
+  return mode as "default" | "ai";
 }
 
 async function pickModel(): Promise<ModelName> {
-  return await select({
+  const model = await p.select({
     message: "Select an AI model",
-    default: "gpt-4.1-mini",
-    choices: MODELS.map((m) => ({ name: m, value: m })),
+    initialValue: "gpt-4.1-mini",
+    options: MODELS.map((m) => ({ label: m, value: m })),
   });
+
+  if (p.isCancel(model)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
+
+  return model as ModelName;
 }
 
 async function getApiKey(): Promise<string> {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
 
-  const key = await input({
+  const key = await p.password({
     message: "Enter OpenAI API key (not saved)",
-    validate: (v) => v.trim().length > 0 || "API key cannot be empty",
+    validate: (v) =>
+      v.trim().length > 0 ? undefined : "API key cannot be empty",
   });
+
+  if (p.isCancel(key)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
 
   return key.trim();
 }
@@ -153,11 +119,6 @@ function readWorkspaceGlobs(rootAbs: string): string[] {
 }
 
 function expandSimpleGlob(rootAbs: string, pattern: string): string[] {
-  // Supports:
-  // - apps/*
-  // - packages/*
-  // - apps/web
-  // Ignores advanced globs like **, {}, []
   const norm = pattern.replace(/\\/g, "/").replace(/\/+$/, "");
 
   if (!norm.includes("*")) {
@@ -230,7 +191,7 @@ program
   .option("--debug", "Print scan diagnostics")
   .option("--monorepo", "Generate .env.example for root + each workspace")
   .action(async (opts) => {
-    renderHeader();
+    p.intro(pc.cyan(`Asyq v${getPackageVersion()}`));
 
     const rootAbs = path.resolve(process.cwd(), opts.root);
     const outName = String(opts.out || ".env.example");
@@ -254,27 +215,9 @@ program
     if (mode === "ai" && model) {
       apiKey = await getApiKey();
       if (!apiKey) {
-        fail(
-          "OpenAI API key is required for AI-assisted mode.",
-          "Set OPENAI_API_KEY or enter it when prompted."
-        );
+        fail("OpenAI API key is required for AI-assisted mode.");
       }
     }
-
-    const steps: Step[] = [
-      {
-        title: "Preparing",
-        status: "running",
-        detail: `targets: ${targets.length}`,
-      },
-      { title: "Scanning & Writing", status: "pending" },
-    ];
-
-    renderSteps(steps);
-
-    steps[0].status = "done";
-    steps[1].status = "running";
-    renderSteps(steps);
 
     const results: Array<{
       target: string;
@@ -289,36 +232,35 @@ program
         path.relative(rootAbs, outFileAbs).replace(/\\/g, "/") || outName;
 
       if (fs.existsSync(outFileAbs) && !opts.force) {
-        steps[1].status = "fail";
-        renderSteps(steps);
-        finishSteps();
         fail(
-          `Output already exists: ${outRelFromRoot}`,
-          "Use --force to overwrite."
+          `Output already exists: ${outRelFromRoot}. Use --force to overwrite.`
         );
       }
 
-      const scanSpinner = ora({
-        text: `Scanning ${t.label}`,
-        spinner: "dots",
-      }).start();
+      const s = p.spinner();
+      s.start(`Scanning ${t.label}`);
 
       const res = scanProjectForEnvKeys({
         rootDir: t.dirAbs,
         includeLowercase: !!opts.includeLowercase,
       });
 
-      scanSpinner.stop();
+      s.stop(
+        `Scanned ${t.label} (${res.filesScanned} files, ${res.keys.size} keys)`
+      );
 
       if (opts.debug) {
-        console.log(pc.dim(`\n${t.label} diagnostics`));
-        console.log(pc.dim(`  dir: ${t.dirAbs}`));
-        console.log(pc.dim(`  files scanned: ${res.filesScanned}`));
-        console.log(pc.dim(`  keys found: ${res.keys.size}\n`));
+        p.note(
+          [
+            `dir: ${t.dirAbs}`,
+            `files scanned: ${res.filesScanned}`,
+            `keys found: ${res.keys.size}`,
+          ].join("\n"),
+          `${t.label} diagnostics`
+        );
       }
 
       if (res.keys.size === 0) {
-        // In monorepo mode, don't fail the whole run for empty workspaces.
         results.push({
           target: t.label,
           outRel: outRelFromRoot,
@@ -333,10 +275,8 @@ program
       let content = keys.map((k) => `${k}=`).join("\n") + "\n";
 
       if (mode === "ai" && model) {
-        const aiSpinner = ora({
-          text: `AI docs ${t.label}`,
-          spinner: "dots",
-        }).start();
+        const aiSpinner = p.spinner();
+        aiSpinner.start(`Generating AI docs for ${t.label}`);
 
         try {
           const docs = await generateEnvDocsWithOpenAI({
@@ -348,7 +288,7 @@ program
             keys,
           });
 
-          aiSpinner.stop();
+          aiSpinner.stop(`AI docs generated for ${t.label}`);
 
           const byKey = new Map(docs.map((d) => [d.key, d]));
 
@@ -374,11 +314,8 @@ program
               .join("\n")
               .trimEnd() + "\n";
         } catch (e: any) {
-          aiSpinner.stop();
-          steps[1].status = "fail";
-          renderSteps(steps);
-          finishSteps();
-          fail(`AI generation failed for ${t.label}.`, e?.message ?? String(e));
+          aiSpinner.stop(`AI generation failed for ${t.label}`);
+          fail(e?.message ?? String(e));
         }
       }
 
@@ -392,29 +329,18 @@ program
       });
     }
 
-    steps[1].status = "done";
-    renderSteps(steps);
-    finishSteps();
+    // Summary table
+    const summary = results
+      .map(
+        (r) =>
+          `${pc.cyan(r.target.padEnd(20))} ${pc.green(
+            String(r.keys).padStart(3)
+          )} keys → ${pc.dim(r.outRel)}`
+      )
+      .join("\n");
 
-    const table = new Table({
-      style: { head: [], border: [] },
-      colWidths: [28, 10, 60],
-      wordWrap: true,
-    });
-
-    table.push([pc.dim("Target"), pc.dim("Keys"), pc.dim("Output")]);
-    for (const r of results) {
-      table.push([
-        pc.cyan(r.target),
-        pc.cyan(String(r.keys)),
-        pc.cyan(r.outRel),
-      ]);
-    }
-
-    console.log("");
-    console.log(pc.bold("Completed"));
-    console.log(table.toString());
-    console.log("");
+    p.note(summary, "Generated");
+    p.outro(pc.green("✓ All done!"));
   });
 
 program.parse(process.argv);

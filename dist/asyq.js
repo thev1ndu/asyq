@@ -4,13 +4,9 @@
 import { Command } from "commander";
 import fs2 from "fs";
 import path2 from "path";
-import pc from "picocolors";
-import ora from "ora";
-import boxen from "boxen";
-import logUpdate from "log-update";
-import TablePkg from "cli-table3";
-import { select, input } from "@inquirer/prompts";
 import { fileURLToPath } from "url";
+import * as p from "@clack/prompts";
+import pc from "picocolors";
 
 // src/scan.ts
 import fs from "fs";
@@ -101,9 +97,13 @@ function extractFromEnvFile(text, relFile, keys, addCtx, keyOk) {
 function extractFromCode(text, relFile, keys, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
   const patterns = [
+    // process.env.KEY or process?.env?.KEY
     /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    // process.env["KEY"] or process.env['KEY']
     /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
+    // import.meta.env.KEY
     /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    // Deno.env.get("KEY")
     /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g
   ];
   for (let i = 0; i < lines.length; i++) {
@@ -217,7 +217,7 @@ function tryParseJsonLoose(raw) {
   }
 }
 async function generateEnvDocsWithOpenAI(opts) {
-  const input2 = buildInput(opts);
+  const input = buildInput(opts);
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -226,7 +226,7 @@ async function generateEnvDocsWithOpenAI(opts) {
     },
     body: JSON.stringify({
       model: opts.model,
-      input: input2,
+      input,
       text: {
         format: {
           type: "json_schema",
@@ -258,7 +258,6 @@ async function generateEnvDocsWithOpenAI(opts) {
 }
 
 // src/asyq.ts
-var Table = TablePkg.default ?? TablePkg;
 var MODELS = [
   "gpt-5",
   "gpt-5-mini",
@@ -278,67 +277,47 @@ function getPackageVersion() {
     return "unknown";
   }
 }
-function renderHeader() {
-  const body = [
-    pc.bold(`Asyq v${getPackageVersion()}`),
-    pc.dim("Generate .env.example from your project\u2019s env usage"),
-    pc.dim("Created by @thev1ndu")
-  ].join("\n");
-  console.log(
-    boxen(body, {
-      padding: 1,
-      borderStyle: "round",
-      borderColor: "cyan"
-    })
-  );
-  console.log("");
-}
-function icon(status) {
-  if (status === "done") return pc.green("\u2713");
-  if (status === "fail") return pc.red("\u2717");
-  if (status === "running") return pc.cyan("\u2022");
-  return pc.dim("\u2022");
-}
-function renderSteps(steps) {
-  logUpdate(
-    steps.map((s) => {
-      const left = `${icon(s.status)} ${s.title}`;
-      const right = s.detail ? pc.dim(s.detail) : "";
-      return right ? `${left} ${right}` : left;
-    }).join("\n")
-  );
-}
-function finishSteps() {
-  logUpdate.done();
-}
-function fail(message, hint) {
-  console.error(pc.red(message));
-  if (hint) console.error(pc.dim(hint));
+function fail(message) {
+  p.outro(pc.red(message));
   process.exit(1);
 }
 async function pickMode() {
-  return await select({
+  const mode = await p.select({
     message: "How would you like to generate .env.example?",
-    choices: [
-      { name: "Default", value: "default" },
-      { name: "AI-assisted", value: "ai" }
+    options: [
+      { label: "Default (fast)", value: "default" },
+      { label: "AI-assisted (adds descriptions)", value: "ai" }
     ]
   });
+  if (p.isCancel(mode)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
+  return mode;
 }
 async function pickModel() {
-  return await select({
+  const model = await p.select({
     message: "Select an AI model",
-    default: "gpt-4.1-mini",
-    choices: MODELS.map((m) => ({ name: m, value: m }))
+    initialValue: "gpt-4.1-mini",
+    options: MODELS.map((m) => ({ label: m, value: m }))
   });
+  if (p.isCancel(model)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
+  return model;
 }
 async function getApiKey() {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
-  const key = await input({
+  const key = await p.password({
     message: "Enter OpenAI API key (not saved)",
-    validate: (v) => v.trim().length > 0 || "API key cannot be empty"
+    validate: (v) => v.trim().length > 0 ? void 0 : "API key cannot be empty"
   });
+  if (p.isCancel(key)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
   return key.trim();
 }
 function readWorkspaceGlobs(rootAbs) {
@@ -410,7 +389,7 @@ program.command("init").description("Scan project and generate .env.example").op
   "--include-lowercase",
   "Include lowercase/mixed-case keys (not recommended)"
 ).option("--debug", "Print scan diagnostics").option("--monorepo", "Generate .env.example for root + each workspace").action(async (opts) => {
-  renderHeader();
+  p.intro(pc.cyan(`Asyq v${getPackageVersion()}`));
   const rootAbs = path2.resolve(process.cwd(), opts.root);
   const outName = String(opts.out || ".env.example");
   const mode = await pickMode();
@@ -428,53 +407,36 @@ program.command("init").description("Scan project and generate .env.example").op
   if (mode === "ai" && model) {
     apiKey = await getApiKey();
     if (!apiKey) {
-      fail(
-        "OpenAI API key is required for AI-assisted mode.",
-        "Set OPENAI_API_KEY or enter it when prompted."
-      );
+      fail("OpenAI API key is required for AI-assisted mode.");
     }
   }
-  const steps = [
-    {
-      title: "Preparing",
-      status: "running",
-      detail: `targets: ${targets.length}`
-    },
-    { title: "Scanning & Writing", status: "pending" }
-  ];
-  renderSteps(steps);
-  steps[0].status = "done";
-  steps[1].status = "running";
-  renderSteps(steps);
   const results = [];
   for (const t of targets) {
     const outFileAbs = path2.join(t.dirAbs, outName);
     const outRelFromRoot = path2.relative(rootAbs, outFileAbs).replace(/\\/g, "/") || outName;
     if (fs2.existsSync(outFileAbs) && !opts.force) {
-      steps[1].status = "fail";
-      renderSteps(steps);
-      finishSteps();
       fail(
-        `Output already exists: ${outRelFromRoot}`,
-        "Use --force to overwrite."
+        `Output already exists: ${outRelFromRoot}. Use --force to overwrite.`
       );
     }
-    const scanSpinner = ora({
-      text: `Scanning ${t.label}`,
-      spinner: "dots"
-    }).start();
+    const s = p.spinner();
+    s.start(`Scanning ${t.label}`);
     const res = scanProjectForEnvKeys({
       rootDir: t.dirAbs,
       includeLowercase: !!opts.includeLowercase
     });
-    scanSpinner.stop();
+    s.stop(
+      `Scanned ${t.label} (${res.filesScanned} files, ${res.keys.size} keys)`
+    );
     if (opts.debug) {
-      console.log(pc.dim(`
-${t.label} diagnostics`));
-      console.log(pc.dim(`  dir: ${t.dirAbs}`));
-      console.log(pc.dim(`  files scanned: ${res.filesScanned}`));
-      console.log(pc.dim(`  keys found: ${res.keys.size}
-`));
+      p.note(
+        [
+          `dir: ${t.dirAbs}`,
+          `files scanned: ${res.filesScanned}`,
+          `keys found: ${res.keys.size}`
+        ].join("\n"),
+        `${t.label} diagnostics`
+      );
     }
     if (res.keys.size === 0) {
       results.push({
@@ -488,10 +450,8 @@ ${t.label} diagnostics`));
     const keys = [...res.keys].sort((a, b) => a.localeCompare(b));
     let content = keys.map((k) => `${k}=`).join("\n") + "\n";
     if (mode === "ai" && model) {
-      const aiSpinner = ora({
-        text: `AI docs ${t.label}`,
-        spinner: "dots"
-      }).start();
+      const aiSpinner = p.spinner();
+      aiSpinner.start(`Generating AI docs for ${t.label}`);
       try {
         const docs = await generateEnvDocsWithOpenAI({
           apiKey,
@@ -500,7 +460,7 @@ ${t.label} diagnostics`));
           contexts: res.contexts,
           keys
         });
-        aiSpinner.stop();
+        aiSpinner.stop(`AI docs generated for ${t.label}`);
         const byKey = new Map(docs.map((d) => [d.key, d]));
         content = keys.map((k) => {
           const d = byKey.get(k);
@@ -517,11 +477,8 @@ ${t.label} diagnostics`));
           ].join("\n");
         }).join("\n").trimEnd() + "\n";
       } catch (e) {
-        aiSpinner.stop();
-        steps[1].status = "fail";
-        renderSteps(steps);
-        finishSteps();
-        fail(`AI generation failed for ${t.label}.`, e?.message ?? String(e));
+        aiSpinner.stop(`AI generation failed for ${t.label}`);
+        fail(e?.message ?? String(e));
       }
     }
     fs2.writeFileSync(outFileAbs, content, "utf8");
@@ -532,26 +489,13 @@ ${t.label} diagnostics`));
       files: res.filesScanned
     });
   }
-  steps[1].status = "done";
-  renderSteps(steps);
-  finishSteps();
-  const table = new Table({
-    style: { head: [], border: [] },
-    colWidths: [28, 10, 60],
-    wordWrap: true
-  });
-  table.push([pc.dim("Target"), pc.dim("Keys"), pc.dim("Output")]);
-  for (const r of results) {
-    table.push([
-      pc.cyan(r.target),
-      pc.cyan(String(r.keys)),
-      pc.cyan(r.outRel)
-    ]);
-  }
-  console.log("");
-  console.log(pc.bold("Completed"));
-  console.log(table.toString());
-  console.log("");
+  const summary = results.map(
+    (r) => `${pc.cyan(r.target.padEnd(20))} ${pc.green(
+      String(r.keys).padStart(3)
+    )} keys \u2192 ${pc.dim(r.outRel)}`
+  ).join("\n");
+  p.note(summary, "Generated");
+  p.outro(pc.green("\u2713 All done!"));
 });
 program.parse(process.argv);
 //# sourceMappingURL=asyq.js.map
