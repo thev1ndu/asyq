@@ -33,15 +33,15 @@
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm build",
-    "pub": "pnpm publish --access=public --no-git-checks",
+    "pulish": "pnpm publish --access=public --no-git-checks",
     "bump:patch": "pnpm version patch",
     "bump:minor": "pnpm version minor",
     "bump:major": "pnpm version major",
     "commit": "node scripts/commit.js",
     "push": "node scripts/push.js",
-    "release:patch": "pnpm commit && pnpm bump:patch && pnpm push && pnpm pub",
-    "release:minor": "pnpm commit && pnpm bump:minor && pnpm push && pnpm pub",
-    "release:major": "pnpm commit && pnpm bump:major && pnpm push && pnpm pub"
+    "release:patch": "pnpm commit && pnpm bump:patch && pnpm push",
+    "release:minor": "pnpm commit && pnpm bump:minor && pnpm push",
+    "release:major": "pnpm commit && pnpm bump:major && pnpm push"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",

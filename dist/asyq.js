@@ -20,7 +20,9 @@ var IGNORE_DIRS = /* @__PURE__ */ new Set([
   "out",
   "coverage",
   ".turbo",
-  ".cache"
+  ".cache",
+  ".vercel",
+  ".netlify"
 ]);
 var ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
 var ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -43,8 +45,29 @@ function scanProjectForEnvKeys(opts) {
   const keys = /* @__PURE__ */ new Set();
   const contexts = {};
   let filesScanned = 0;
+  const seenInCode = /* @__PURE__ */ new Set();
   walk(root);
-  return { keys, filesScanned, contexts };
+  const finalKeys = /* @__PURE__ */ new Set();
+  const seenInCodeUpper = new Set([...seenInCode].map((k) => k.toUpperCase()));
+  for (const key of keys) {
+    if (seenInCodeUpper.has(key.toUpperCase())) {
+      finalKeys.add(key);
+    }
+  }
+  for (const codeKey of seenInCode) {
+    const upper = codeKey.toUpperCase();
+    let found = false;
+    for (const key of finalKeys) {
+      if (key.toUpperCase() === upper) {
+        found = true;
+        break;
+      }
+    }
+    if (!found && keyOk(codeKey)) {
+      finalKeys.add(codeKey);
+    }
+  }
+  return { keys: finalKeys, filesScanned, contexts };
   function addCtx(key, relFile, line, snippet) {
     if (!contexts[key]) contexts[key] = [];
     if (contexts[key].length >= maxCtx) return;
@@ -77,7 +100,7 @@ function scanProjectForEnvKeys(opts) {
       if (isEnvFile) {
         extractFromEnvFile(content, rel, keys, addCtx, keyOk);
       } else {
-        extractFromCode(content, rel, keys, addCtx, keyOk);
+        extractFromCode(content, rel, keys, seenInCode, addCtx, keyOk);
       }
     }
   }
@@ -86,6 +109,7 @@ function extractFromEnvFile(text, relFile, keys, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
+    if (!ln.trim() || ln.trim().startsWith("#")) continue;
     const m = ln.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
     if (!m) continue;
     const k = m[1];
@@ -94,20 +118,23 @@ function extractFromEnvFile(text, relFile, keys, addCtx, keyOk) {
     addCtx(k, relFile, i + 1, ln);
   }
 }
-function extractFromCode(text, relFile, keys, addCtx, keyOk) {
+function extractFromCode(text, relFile, keys, seenInCode, addCtx, keyOk) {
   const lines = text.split(/\r?\n/);
   const patterns = [
     // process.env.KEY or process?.env?.KEY
-    /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
-    // process.env["KEY"] or process.env['KEY']
-    /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
-    // import.meta.env.KEY
-    /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    /\bprocess(?:\?\.|\.)env(?:\?\.|\.)([A-Za-z_][A-Za-z0-9_]*)\b/gi,
+    // process.env["KEY"] or process?.env?.["KEY"]
+    /\bprocess(?:\?\.|\.)env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/gi,
+    // import.meta.env.KEY (Vite, etc.)
+    /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/gi,
     // Deno.env.get("KEY")
-    /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g
+    /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/gi,
+    // Bun.env.KEY
+    /\bBun\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/gi
   ];
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
+    if (ln.trim().startsWith("//") || ln.trim().startsWith("#")) continue;
     for (const re of patterns) {
       re.lastIndex = 0;
       let match;
@@ -115,6 +142,7 @@ function extractFromCode(text, relFile, keys, addCtx, keyOk) {
         const k = match[1];
         if (!keyOk(k)) continue;
         keys.add(k);
+        seenInCode.add(k);
         addCtx(k, relFile, i + 1, ln);
       }
     }
