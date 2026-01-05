@@ -169,6 +169,21 @@ function detectWorkspaces(rootAbs: string): string[] {
   return [...found].sort((a, b) => a.localeCompare(b));
 }
 
+async function pickWorkspaces(workspaces: string[]): Promise<string[]> {
+  const picked = await p.multiselect({
+    message: "Select workspaces to generate .env.example for",
+    options: workspaces.map((w) => ({ label: w, value: w })),
+    required: false,
+  });
+
+  if (p.isCancel(picked)) {
+    p.cancel("Operation cancelled");
+    process.exit(0);
+  }
+
+  return (picked as string[]) ?? [];
+}
+
 /* -------------------------------------------------------------------------- */
 
 const program = new Command();
@@ -190,6 +205,15 @@ program
   )
   .option("--debug", "Print scan diagnostics")
   .option("--monorepo", "Generate .env.example for root + each workspace")
+  .option(
+    "--select",
+    "In monorepo mode: interactively choose which workspaces to generate for"
+  )
+  .option(
+    "--workspaces <list>",
+    "In monorepo mode: comma-separated workspace list to generate for"
+  )
+  .option("--no-root", "In monorepo mode: skip generating for repo root")
   .action(async (opts) => {
     p.intro(pc.cyan(`\nAsyq v${getPackageVersion()} Created by @thev1ndu`));
 
@@ -199,24 +223,58 @@ program
     const mode = await pickMode();
     const model: ModelName | null = mode === "ai" ? await pickModel() : null;
 
-    const targets: { label: string; dirAbs: string }[] = [
-      { label: "root", dirAbs: rootAbs },
-    ];
+    const targets: { label: string; dirAbs: string }[] = [];
 
+    // Root target (default on, unless --no-root)
+    if (opts.root !== false) {
+      targets.push({ label: "root", dirAbs: rootAbs });
+    }
+
+    // Monorepo targets
     if (opts.monorepo) {
       const workspaces = detectWorkspaces(rootAbs);
-      for (const rel of workspaces) {
-        targets.push({ label: rel, dirAbs: path.join(rootAbs, rel) });
+
+      if (workspaces.length === 0) {
+        p.note(
+          "No workspaces detected (pnpm-workspace.yaml / package.json workspaces / apps/* / packages/*).",
+          "Monorepo"
+        );
+      } else {
+        let selected = workspaces;
+
+        if (opts.workspaces) {
+          const allow = new Set(
+            String(opts.workspaces)
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          );
+          selected = workspaces.filter((w) => allow.has(w));
+          const missing = [...allow].filter((x) => !workspaces.includes(x));
+          if (missing.length) {
+            p.note(missing.join("\n"), "Unknown workspaces ignored");
+          }
+        } else if (opts.select) {
+          selected = await pickWorkspaces(workspaces);
+        }
+
+        for (const rel of selected) {
+          targets.push({ label: rel, dirAbs: path.join(rootAbs, rel) });
+        }
       }
+    }
+
+    if (targets.length === 0) {
+      fail(
+        "No targets selected. Tip: remove --no-root or select at least one workspace."
+      );
     }
 
     // API key once for all targets (AI mode)
     let apiKey = "";
     if (mode === "ai" && model) {
       apiKey = await getApiKey();
-      if (!apiKey) {
-        fail("OpenAI API key is required for AI-assisted mode.");
-      }
+      if (!apiKey) fail("OpenAI API key is required for AI-assisted mode.");
     }
 
     const results: Array<{
@@ -224,6 +282,7 @@ program
       outRel: string;
       keys: number;
       files: number;
+      wrote: boolean;
     }> = [];
 
     for (const t of targets) {
@@ -260,18 +319,23 @@ program
         );
       }
 
+      // If no keys, skip writing (current behavior), but show a clear note.
       if (res.keys.size === 0) {
+        p.note(
+          `No env vars detected in ${t.label}. Skipping ${outRelFromRoot}`,
+          "Nothing to write"
+        );
         results.push({
           target: t.label,
           outRel: outRelFromRoot,
           keys: 0,
           files: res.filesScanned,
+          wrote: false,
         });
         continue;
       }
 
       const keys = [...res.keys].sort((a, b) => a.localeCompare(b));
-
       let content = keys.map((k) => `${k}=`).join("\n") + "\n";
 
       if (mode === "ai" && model) {
@@ -328,17 +392,18 @@ program
         outRel: outRelFromRoot,
         keys: keys.length,
         files: res.filesScanned,
+        wrote: true,
       });
     }
 
     // Summary table
     const summary = results
-      .map(
-        (r) =>
-          `${pc.cyan(r.target.padEnd(20))} ${pc.green(
-            String(r.keys).padStart(3)
-          )} keys → ${pc.dim(r.outRel)}`
-      )
+      .map((r) => {
+        const status = r.wrote ? pc.green("wrote") : pc.yellow("skipped");
+        return `${pc.cyan(r.target.padEnd(20))} ${pc.green(
+          String(r.keys).padStart(3)
+        )} keys → ${pc.dim(r.outRel)} ${pc.dim(`(${status})`)}`;
+      })
       .join("\n");
 
     p.note(summary, "Generated");

@@ -417,7 +417,8 @@ program.command("init").description("Scan project and generate .env.example").op
   "--include-lowercase",
   "Include lowercase/mixed-case keys (not recommended)"
 ).option("--debug", "Print scan diagnostics").option("--monorepo", "Generate .env.example for root + each workspace").action(async (opts) => {
-  p.intro(pc.cyan(`Asyq v${getPackageVersion()}`));
+  p.intro(pc.cyan(`
+Asyq v${getPackageVersion()} Created by @thev1ndu`));
   const rootAbs = path2.resolve(process.cwd(), opts.root);
   const outName = String(opts.out || ".env.example");
   const mode = await pickMode();
