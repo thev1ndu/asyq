@@ -25,11 +25,13 @@ const IGNORE_DIRS = new Set([
   "coverage",
   ".turbo",
   ".cache",
+  ".vercel",
+  ".netlify",
 ]);
 
 // ENV VARS MUST BE EXPLICIT + UPPERCASE
 const ENV_KEY_RE_STRICT = /^[A-Z][A-Z0-9_]*$/;
-const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/; // Allows any casing
+const ENV_KEY_RE_LOOSE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
   const root = opts.rootDir;
@@ -54,9 +56,37 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
   const keys = new Set<string>();
   const contexts: Record<string, KeyContext[]> = {};
   let filesScanned = 0;
+  const seenInCode = new Set<string>();
 
   walk(root);
-  return { keys, filesScanned, contexts };
+
+  // Only keep keys that were found in actual code, not just .env files
+  // Normalize to uppercase for comparison
+  const finalKeys = new Set<string>();
+  const seenInCodeUpper = new Set([...seenInCode].map((k) => k.toUpperCase()));
+
+  for (const key of keys) {
+    if (seenInCodeUpper.has(key.toUpperCase())) {
+      finalKeys.add(key);
+    }
+  }
+
+  // Add any code-only keys that weren't in .env files
+  for (const codeKey of seenInCode) {
+    const upper = codeKey.toUpperCase();
+    let found = false;
+    for (const key of finalKeys) {
+      if (key.toUpperCase() === upper) {
+        found = true;
+        break;
+      }
+    }
+    if (!found && keyOk(codeKey)) {
+      finalKeys.add(codeKey);
+    }
+  }
+
+  return { keys: finalKeys, filesScanned, contexts };
 
   function addCtx(key: string, relFile: string, line: number, snippet: string) {
     if (!contexts[key]) contexts[key] = [];
@@ -98,7 +128,7 @@ export function scanProjectForEnvKeys(opts: ScanOptions): ScanResult {
       if (isEnvFile) {
         extractFromEnvFile(content, rel, keys, addCtx, keyOk);
       } else {
-        extractFromCode(content, rel, keys, addCtx, keyOk);
+        extractFromCode(content, rel, keys, seenInCode, addCtx, keyOk);
       }
     }
   }
@@ -114,11 +144,17 @@ function extractFromEnvFile(
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
-    // Match any valid identifier in .env files
+
+    // Skip comments and empty lines
+    if (!ln.trim() || ln.trim().startsWith("#")) continue;
+
+    // Match variable assignments
     const m = ln.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
     if (!m) continue;
+
     const k = m[1];
     if (!keyOk(k)) continue;
+
     keys.add(k);
     addCtx(k, relFile, i + 1, ln);
   }
@@ -128,25 +164,31 @@ function extractFromCode(
   text: string,
   relFile: string,
   keys: Set<string>,
+  seenInCode: Set<string>,
   addCtx: (key: string, relFile: string, line: number, snippet: string) => void,
   keyOk: (k: string) => boolean
 ) {
   const lines = text.split(/\r?\n/);
 
-  // ONLY explicit env APIs - any valid identifier
+  // JavaScript/TypeScript environment variable patterns
   const patterns: RegExp[] = [
     // process.env.KEY or process?.env?.KEY
-    /\bprocess(?:\?\.)?\.env(?:\?\.)?\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
-    // process.env["KEY"] or process.env['KEY']
-    /\bprocess(?:\?\.)?\.env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/g,
-    // import.meta.env.KEY
-    /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    /\bprocess(?:\?\.|\.)env(?:\?\.|\.)([A-Za-z_][A-Za-z0-9_]*)\b/gi,
+    // process.env["KEY"] or process?.env?.["KEY"]
+    /\bprocess(?:\?\.|\.)env\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\]/gi,
+    // import.meta.env.KEY (Vite, etc.)
+    /\bimport\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/gi,
     // Deno.env.get("KEY")
-    /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g,
+    /\bDeno\.env\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/gi,
+    // Bun.env.KEY
+    /\bBun\.env\.([A-Za-z_][A-Za-z0-9_]*)\b/gi,
   ];
 
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
+
+    // Skip comments
+    if (ln.trim().startsWith("//") || ln.trim().startsWith("#")) continue;
 
     for (const re of patterns) {
       re.lastIndex = 0;
@@ -156,6 +198,7 @@ function extractFromCode(
         const k = match[1];
         if (!keyOk(k)) continue;
         keys.add(k);
+        seenInCode.add(k);
         addCtx(k, relFile, i + 1, ln);
       }
     }
