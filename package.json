@@ -36,7 +36,10 @@
     "publish:local": "pnpm publish --access=public --no-git-checks",
     "bump:patch": "pnpm version patch",
     "bump:minor": "pnpm version minor",
-    "bump:major": "pnpm version major"
+    "bump:major": "pnpm version major",
+    "release:patch": "bump:patch && git push && git push --tags",
+    "release:minor": "bump:minor && git push && git push --tags",
+    "release:major": "bump:major && git push && git push --tags"
   },
   "repository": {
     "type": "git",
