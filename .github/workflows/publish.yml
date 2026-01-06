@@ -47,10 +47,10 @@ jobs:
           NAME=$(node -p "require('./package.json').name")
           VER=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VER" version >/dev/null 2>&1; then
-            echo "❌ $NAME@$VER already exists on npm. Bump version and push a new tag."
+            echo "$NAME@$VER already exists on npm. Bump version and push a new tag."
             exit 1
           fi
-          echo "✅ $NAME@$VER not found on npm. Continuing."
+          echo "$NAME@$VER not found on npm. Continuing."
 
       - name: Publish
         run: npm publish --provenance --access public

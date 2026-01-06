@@ -36,20 +36,11 @@
     "publish:local": "pnpm publish --access=public --no-git-checks",
     "bump:patch": "pnpm version patch",
     "bump:minor": "pnpm version minor",
-    "bump:major": "pnpm version major",
-    "commit": "node scripts/commit.js",
-    "push": "node scripts/push.js",
-    "release:patch": "pnpm commit && pnpm bump:patch && pnpm push",
-    "release:minor": "pnpm commit && pnpm bump:minor && pnpm push",
-    "release:major": "pnpm commit && pnpm bump:major && pnpm push"
+    "bump:major": "pnpm version major"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/thev1ndu/asyq.git"
-  },
-  "homepage": "https://github.com/thev1ndu/asyq#readme",
-  "bugs": {
-    "url": "https://github.com/thev1ndu/asyq/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
